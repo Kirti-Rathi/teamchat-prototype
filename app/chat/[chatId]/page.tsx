@@ -4,6 +4,7 @@ import { useParams } from "next/navigation";
 import { useSession, useUser } from "@clerk/nextjs";
 import { createClient } from "@supabase/supabase-js";
 import ChatRoom from "./ChatRoom";
+import ChatRoomNew from "./ChatRoomNew"
 
 export default function ChatDetailsPage() {
   const params = useParams();

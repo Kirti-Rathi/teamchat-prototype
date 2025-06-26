@@ -36,27 +36,38 @@ export default function ChatLayout({
 
   // Fetch current chat's workspaceId and workspaceName
   useEffect(() => {
-    if (!chatId) return;
-    const fetchChat = async () => {
-      const { data: chatData } = await client
-        .from("chats")
-        .select("workspace_id")
-        .eq("id", chatId)
-        .single();
-      setWorkspaceId(chatData?.workspace_id);
-      if (chatData?.workspace_id) {
-        const { data: ws } = await client
-          .from("workspaces")
-          .select("name")
-          .eq("id", chatData.workspace_id)
+    // Fetch workspace name immediately on mount
+    const fetchWorkspaceName = async () => {
+      if (!chatId) return;
+      try {
+        const { data: chatData } = await client
+          .from("chats")
+          .select("workspace_id")
+          .eq("id", chatId)
           .single();
-        setWorkspaceName(ws?.name || "Workspace");
-      } else {
+        
+        if (chatData?.workspace_id) {
+          const { data: ws } = await client
+            .from("workspaces")
+            .select("name")
+            .eq("id", chatData.workspace_id)
+            .single();
+          
+          // Set both workspaceId and name in a single update to avoid flickering
+          setWorkspaceId(chatData.workspace_id);
+          setWorkspaceName(ws?.name || "");
+        } else {
+          setWorkspaceId(null);
+          setWorkspaceName("");
+        }
+      } catch (error) {
+        console.error('Error fetching workspace name:', error);
         setWorkspaceName("");
       }
     };
-    fetchChat();
-  }, [chatId]);
+
+    fetchWorkspaceName();
+  }, [chatId, client]);
 
   // Fetch chat rooms for sidebar
   useEffect(() => {

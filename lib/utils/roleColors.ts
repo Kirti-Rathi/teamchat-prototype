@@ -1,0 +1,8 @@
+import { Role } from "@/types/message";
+
+export const roleColors: Record<Role, string> = {
+  admin: "bg-blue-600 text-white",
+  member: "bg-green-600 text-white",
+  guest: "bg-yellow-500 text-white",
+  viewer: "bg-gray-400 text-white",
+};

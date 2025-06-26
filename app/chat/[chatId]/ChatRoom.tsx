@@ -132,7 +132,7 @@ export default function ChatRoom() {
   // Realtime subscription with improved handling
   useEffect(() => {
     if (!chatId) return;
-    
+
     // Create a new channel for real-time updates
     const channel = client
       .channel(`messages:chat:${chatId}`)
@@ -145,34 +145,34 @@ export default function ChatRoom() {
           filter: `chat_id=eq.${chatId}`,
         },
         (payload) => {
-          console.log('Received real-time update:', payload);
+          console.log("Received real-time update:", payload);
           // Update messages with optimistic update first
           setMessages((prev) => [...prev, payload.new as Message]);
           // Then refetch to ensure consistency
-          client
-            .from("messages")
-            .select("*")
-            .eq("chat_id", chatId)
-            .order("created_at", { ascending: true })
-            .then(({ data, error }) => {
-              if (error) console.error('Error refetching messages:', error);
-              if (data) setMessages(data);
-            });
+          // client
+          //   .from("messages")
+          //   .select("*")
+          //   .eq("chat_id", chatId)
+          //   .order("created_at", { ascending: true })
+          //   .then(({ data, error }) => {
+          //     if (error) console.error('Error refetching messages:', error);
+          //     if (data) setMessages(data);
+          //   });
         }
       )
       .subscribe();
 
     // Initial fetch when subscription is established
-    channel.on('status', (status) => {
-      console.log('Subscription status:', status);
-      if (status === 'SUBSCRIBED') {
+    channel.on("status", (status) => {
+      console.log("Subscription status:", status);
+      if (status === "SUBSCRIBED") {
         client
           .from("messages")
           .select("*")
           .eq("chat_id", chatId)
           .order("created_at", { ascending: true })
           .then(({ data, error }) => {
-            if (error) console.error('Error fetching initial messages:', error);
+            if (error) console.error("Error fetching initial messages:", error);
             if (data) setMessages(data);
           });
       }
@@ -225,7 +225,11 @@ export default function ChatRoom() {
       role: msg.sender_type === "ai" ? "assistant" : "user",
       content: msg.content,
     }));
-    geminiContext.push({ role: "user", content: input.trim() });
+    // geminiContext.push({ role: "user", content: input.trim() });
+    const lastMsg = contextMessages[contextMessages.length - 1];
+    if (!lastMsg || lastMsg.content !== input.trim()) {
+      geminiContext.push({ role: "user", content: input.trim() });
+    }
 
     // Call Gemini API via /api/ai
     let aiReply = "[Gemini AI reply placeholder]";
@@ -279,7 +283,6 @@ export default function ChatRoom() {
     !aiLoading;
   const canInvite = role === "admin" || role === "member";
   const isViewer = role === "viewer";
-
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-x-hidden">
