@@ -5,7 +5,13 @@ import { createClient } from "@supabase/supabase-js";
 import { useParams } from "next/navigation";
 import clsx from "clsx";
 import ReactMarkdown from "react-markdown";
-import { Send, Pause, MoreHorizontal, Link2, FileDown } from "lucide-react";
+import { Send, Pause, MoreHorizontal, FileDown, UserPlus } from "lucide-react";
+import dynamic from "next/dynamic";
+
+const InviteModal = dynamic(
+  () => import("@/components/chat/InviteModalNew"),
+  { ssr: false }
+);
 
 // Types
 interface Message {
@@ -59,23 +65,100 @@ export default function ChatRoom() {
   const [chatTitle, setChatTitle] = useState<string>("");
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [workspaceName, setWorkspaceName] = useState<string>("");
+  const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Fetch role
+  // Fetch role and chat info
   useEffect(() => {
     if (!user?.id || !chatId) return;
-    const fetchRole = async () => {
-      const { data, error } = await client
-        .from("chat_user_roles")
-        .select("role")
-        .eq("chat_id", chatId)
-        .eq("user_id", user.id)
-        .single();
-      if (data?.role) setRole(data.role);
-      else setRole(null);
+    
+    const fetchRoleAndChat = async () => {
+      try {
+        // Check if user is the creator of the chat
+        const { data: chatData } = await client
+          .from("chats")
+          .select("created_by, title, workspace_id")
+          .eq("id", chatId)
+          .single();
+
+        if (chatData) {
+          setChatTitle(chatData.title);
+          setWorkspaceId(chatData.workspace_id);
+          
+          // If user is the creator, they're an admin
+          if (chatData.created_by === user.id) {
+            setRole("admin");
+            // No need to check further if user is the creator
+            return;
+          }
+        }
+
+
+        // First, check if user has a role in chat_user_roles
+        const { data: roleData, error: roleError } = await client
+          .from("chat_user_roles")
+          .select("role")
+          .eq("chat_id", chatId)
+          .eq("user_id", user.id)
+          .single();
+
+        if (roleData?.role) {
+          console.log("User has role:", roleData.role);
+          setRole(roleData.role);
+          return;
+        }
+
+        // If no role found, check for any accepted invites
+        const { data: acceptedInvite } = await client
+          .from("chat_invites")
+          .select("*")
+          .eq("chat_id", chatId)
+          .eq("email", user.primaryEmailAddress?.emailAddress)
+          .eq("accepted", true)
+          .single();
+
+        if (acceptedInvite) {
+          console.log("User has accepted invite with role:", acceptedInvite.role);
+          setRole(acceptedInvite.role as Role);
+          return;
+        }
+
+        // Check for pending invite
+        const { data: pendingInvite } = await client
+          .from("chat_invites")
+          .select("*")
+          .eq("chat_id", chatId)
+          .eq("email", user.primaryEmailAddress?.emailAddress)
+          .eq("accepted", false)
+          .single();
+          
+        if (pendingInvite) {
+          console.log("User has pending invite");
+          setRole(null);
+          return;
+        }
+
+        // Default to viewer if no role or invite found
+        console.log("No role or invite found, defaulting to viewer");
+        setRole("viewer");
+
+        // Fetch admin info if not already set
+        if (chatData?.created_by && !adminInfo) {
+          const { data: adminData } = await client
+            .from("users")
+            .select("email, username")
+            .eq("id", chatData.created_by)
+            .single();
+          setAdminInfo(adminData);
+        }
+      } catch (error) {
+        console.error("Error fetching role or chat info:", error);
+        setRole("viewer");
+      }
     };
-    fetchRole();
-  }, [user?.id, chatId]);
+
+    fetchRoleAndChat();
+  }, [user?.id, chatId, user?.primaryEmailAddress?.emailAddress]);
 
   // Fetch messages
   useEffect(() => {
@@ -90,43 +173,6 @@ export default function ChatRoom() {
         if (data) setMessages(data);
         setLoading(false);
       });
-  }, [chatId]);
-
-  // Fetch chat title, admin info, and workspace info
-  useEffect(() => {
-    if (!chatId) return;
-    const fetchChat = async () => {
-      const { data: chatData } = await client
-        .from("chats")
-        .select("title, created_by, workspace_id")
-        .eq("id", chatId)
-        .single();
-      if (chatData) {
-        setChatTitle(chatData.title);
-        setWorkspaceId(chatData.workspace_id);
-        // Fetch admin info
-        if (chatData.created_by) {
-          const { data: adminUser } = await client
-            .from("users")
-            .select("email, username")
-            .eq("id", chatData.created_by)
-            .single();
-          setAdminInfo(adminUser);
-        }
-        // Fetch workspace name if applicable
-        if (chatData.workspace_id) {
-          const { data: ws } = await client
-            .from("workspaces")
-            .select("name")
-            .eq("id", chatData.workspace_id)
-            .single();
-          setWorkspaceName(ws?.name || "Workspace");
-        } else {
-          setWorkspaceName("");
-        }
-      }
-    };
-    fetchChat();
   }, [chatId]);
 
   // Realtime subscription with improved handling
@@ -190,6 +236,60 @@ export default function ChatRoom() {
     }, 100);
     return () => clearTimeout(timer);
   }, [messages]);
+
+  // Handle sending invites
+  const handleSendInvites = async (invites: { email: string; role: string }[]) => {
+    try {
+      // First, insert the invites into the database
+      const { data: insertedInvites, error } = await client
+        .from('chat_invites')
+        .insert(
+          invites.map((invite) => ({
+            chat_id: chatId,
+            email: invite.email,
+            role: invite.role,
+            invited_by: user?.id || null,
+          }))
+        )
+        .select();
+
+      if (error) throw error;
+
+      // Send email notifications for each invite
+      const emailPromises = invites.map(async (invite, index) => {
+        try {
+          const response = await fetch('/api/send-invite', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              inviteId: insertedInvites?.[index]?.id, // Get the ID of the inserted invite
+              inviteeEmail: invite.email,
+              inviterName: user?.fullName || user?.username || 'Someone',
+              chatTitle: chatTitle || 'a chat',
+              role: invite.role,
+            }),
+          });
+
+          if (!response.ok) {
+            const error = await response.json();
+            console.error('Failed to send invite email:', error);
+          }
+        } catch (err) {
+          console.error('Error sending invite email:', err);
+        }
+      });
+
+      // Wait for all email sends to complete (but don't block the UI)
+      await Promise.all(emailPromises);
+
+      return { success: true };
+    } catch (err) {
+      console.error('Error sending invites:', err);
+      return { success: false, error: err };
+    }
+  };
 
   // Send message
   async function handleSend(e: React.FormEvent) {
@@ -277,12 +377,9 @@ export default function ChatRoom() {
   }
 
   // Role-based permissions
-  const canSend =
-    (role === "admin" || role === "member" || role === "guest") &&
-    !loading &&
-    !aiLoading;
+  const canSend = role === "admin" || role === "member" || role === "guest";
   const canInvite = role === "admin" || role === "member";
-  const isViewer = role === "viewer";
+  const isViewer = role === "viewer" || !role;
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-x-hidden">
@@ -309,13 +406,22 @@ export default function ChatRoom() {
           )}
         </div>
         <div className="flex items-center gap-2">
-          <button className="p-2 rounded hover:bg-gray-100" title="Invite">
-            <Link2 size={20} />
+          <button 
+            className="p-2 rounded hover:bg-gray-100" 
+            title="Invite"
+            onClick={() => setIsInviteModalOpen(true)}
+          >
+            <UserPlus size={20} />
           </button>
           <button className="p-2 rounded hover:bg-gray-100" title="Settings">
             <MoreHorizontal size={20} />
           </button>
         </div>
+        <InviteModal
+          isOpen={isInviteModalOpen}
+          onClose={() => setIsInviteModalOpen(false)}
+          onSend={handleSendInvites}
+        />
       </header>
       {/* Message Area */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden p-6 space-y-4 bg-gray-50">

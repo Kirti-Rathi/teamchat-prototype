@@ -214,7 +214,8 @@ export default function Dashboard() {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
-  const { user } = useUser();
+  // const { user } = useUser();
+  const { user, isLoaded } = useUser();
   const { session } = useSession();
 
   function createClerkSupabaseClient() {
@@ -346,9 +347,17 @@ export default function Dashboard() {
     }
   }
 
+  // if (!user) {
+  //   return <div className="p-8 text-red-500">No user found. Please sign in.</div>;
+  // }
+  if (!isLoaded) {
+    return <div className="p-8 text-gray-500">Loading your dashboard...</div>; // or spinner
+  }
+  
   if (!user) {
     return <div className="p-8 text-red-500">No user found. Please sign in.</div>;
   }
+  
 
   return (
     <div className="flex min-h-screen">

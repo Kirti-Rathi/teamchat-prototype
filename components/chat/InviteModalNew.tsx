@@ -17,6 +17,7 @@ interface InviteModalProps {
 
 const InviteModal: React.FC<InviteModalProps> = ({ isOpen, onClose, onSend }) => {
   const [input, setInput] = useState("");
+  const [selectedRole, setSelectedRole] = useState<Role>("viewer");
   const [invites, setInvites] = useState<Invite[]>([]);
 
   if (!isOpen) return null;
@@ -28,7 +29,7 @@ const InviteModal: React.FC<InviteModalProps> = ({ isOpen, onClose, onSend }) =>
 
     if (invites.some((i) => i.email === email)) return;
 
-    setInvites((prev) => [...prev, { email, role: "guest" }]);
+    setInvites((prev) => [...prev, { email, role: selectedRole }]);
     setInput("");
   };
 
@@ -53,6 +54,7 @@ const InviteModal: React.FC<InviteModalProps> = ({ isOpen, onClose, onSend }) =>
     if (invites.length > 0) {
       onSend(invites);
       setInvites([]);
+      setSelectedRole("viewer");
       onClose();
     }
   };
@@ -65,15 +67,26 @@ const InviteModal: React.FC<InviteModalProps> = ({ isOpen, onClose, onSend }) =>
           Enter email(s) and assign roles
         </p>
 
-        {/* Email Input */}
-        <input
-          type="text"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="Type email and press Enter"
-          className="w-full px-3 py-2 border border-zinc-300 dark:border-zinc-700 rounded mb-4 bg-white dark:bg-zinc-800 text-sm focus:outline-none"
-        />
+        {/* Email & Role Input Row */}
+        <div className="flex items-center gap-2 mb-4">
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Type email and press Enter"
+            className="flex-1 px-3 py-2 border border-zinc-300 dark:border-zinc-700 rounded bg-white dark:bg-zinc-800 text-sm focus:outline-none"
+          />
+          <select
+            value={selectedRole}
+            onChange={(e) => setSelectedRole(e.target.value as Role)}
+            className="text-sm border border-zinc-300 dark:border-zinc-700 rounded px-2 py-2 bg-white dark:bg-zinc-900"
+          >
+            <option value="viewer">Viewer</option>
+            <option value="guest">Guest</option>
+            <option value="member">Member</option>
+          </select>
+        </div>
 
         {/* Email Chips */}
         <div className="space-y-2 max-h-40 overflow-y-auto mb-4">
