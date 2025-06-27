@@ -5,11 +5,15 @@ import { useSession, useUser } from "@clerk/nextjs";
 import { createClient } from "@supabase/supabase-js";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import InviteModal from "@/components/chat/InviteModalNew";
+import { UserPlus } from "lucide-react";
 
 const Workspace = () => {
   const params = useParams();
   const workspaceId = params?.workspaceId as string;
   const [chats, setChats] = useState<Array<{ id: string; title: string }>>([]);
+  const [workspaceName, setWorkspaceName] = useState("");
+  const [isInviteModalOpen, setIsInviteModalOpen] = useState(false); 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -29,6 +33,33 @@ const Workspace = () => {
   }
 
   const client = createClerkSupabaseClient();
+
+  console.log("WorkspaceID at top level:", workspaceId);
+
+  useEffect(() => {
+    if (!workspaceId || !session) return;
+  
+    async function fetchWorkspaceName() {
+      const { data, error } = await client
+        .from("workspaces")
+        .select("name")
+        .eq("id", workspaceId)
+        .single();
+
+      console.log("workspaceId passed to fetch:", workspaceId);
+
+  
+      if (error) {
+        console.error("Failed to fetch workspace name:", error.message);
+        setWorkspaceName("Unnamed Workspace");
+      } else {
+        setWorkspaceName(data.name);
+      }
+    }
+  
+    fetchWorkspaceName();
+  }, [workspaceId, session]);
+  
 
   // useEffect(() => {
   //   const fetchChats = async () => {
@@ -51,7 +82,6 @@ const Workspace = () => {
     setLoading(true);
     setError("");
     async function loadChats() {
-      // Fetch chats: only standalone chats (workspace_id is null) where user is a member
       const { data, error } = await client
         .from("chats")
         .select("id, title")
@@ -99,7 +129,6 @@ const Workspace = () => {
     const title = prompt("Enter chat title:");
     if (!title || !title.trim()) return;
     setLoading(true);
-    // Insert chat, set created_by to user.id and workspace_id to null (standalone)
     const { data, error: chatError } = await client
       .from("chats")
       .insert({ title, created_by: user.id, workspace_id: workspaceId })
@@ -124,9 +153,60 @@ const Workspace = () => {
     setLoading(false);
   }
 
+  const handleSendWorkspaceInvites = async (invites: { email: string; role: string }[]) => {
+    try {
+      const { data: insertedInvites, error } = await client
+        .from('workspace_invites')
+        .insert(
+          invites.map((invite) => ({
+            workspace_id: workspaceId, // Make sure this is in scope
+            email: invite.email,
+            role: invite.role,
+            invited_by: user?.id || null,
+          }))
+        )
+        .select();
+  
+      if (error) throw error;
+  
+      const emailPromises = invites.map(async (invite, index) => {
+        try {
+          const response = await fetch('/api/send-workspace-invite', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              inviteId: insertedInvites?.[index]?.id,
+              inviteeEmail: invite.email,
+              inviterName: user?.fullName || user?.username || 'Someone',
+              workspaceName: workspaceName || 'a workspace',
+              role: invite.role,
+            }),
+          });
+  
+          if (!response.ok) {
+            const error = await response.json();
+            console.error('Failed to send workspace invite email:', error);
+          }
+        } catch (err) {
+          console.error('Error sending workspace invite email:', err);
+        }
+      });
+  
+      await Promise.all(emailPromises);
+  
+      return { success: true };
+    } catch (err) {
+      console.error('Error sending workspace invites:', err);
+      return { success: false, error: err };
+    }
+  };
+  
+
   return (
     <div className="p-8">
-      <h1 className="text-2xl font-bold mb-4">Workspace Chats</h1>
+      <h1 className="text-2xl font-bold mb-4">{workspaceName}</h1>
       <button
         className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 mb-6"
         onClick={handleCreateChat}
@@ -134,6 +214,18 @@ const Workspace = () => {
       >
         + New Chat
       </button>
+      <button 
+        className="p-2 rounded hover:bg-gray-100" 
+        title="Invite"
+        onClick={() => setIsInviteModalOpen(true)}
+      >
+        <UserPlus size={20} />
+      </button>
+      <InviteModal
+          isOpen={isInviteModalOpen}
+          onClose={() => setIsInviteModalOpen(false)}
+          onSend={handleSendWorkspaceInvites}
+        />
       {error && <div className="text-red-500 mb-2">{error}</div>}
       {success && <div className="text-green-600 mb-2">{success}</div>}
       {loading ? (

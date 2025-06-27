@@ -28,7 +28,7 @@ export default function SupabaseProvider({ children }: Props) {
 
     const client = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_KEY!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
       {
         accessToken: () => session?.getToken(),
       }
