@@ -6,7 +6,9 @@ import { useState } from "react";
 export default function Page() {
   const [isOpen, setIsOpen] = useState(false);
 
-  const handleSend = (invites: { email: string; role: "viewer" | "guest" | "member" }[]) => {
+  const handleSend = (
+    invites: { email: string; role: "viewer" | "guest" | "member" }[]
+  ) => {
     alert(JSON.stringify(invites, null, 2));
     // Call your backend here
   };

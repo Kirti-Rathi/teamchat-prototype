@@ -200,7 +200,6 @@
 //   );
 // }
 
-
 "use client";
 import React, { useEffect, useState } from "react";
 import { useSession, useUser } from "@clerk/nextjs";
@@ -208,7 +207,9 @@ import { createClient } from "@supabase/supabase-js";
 import Link from "next/link";
 
 export default function Dashboard() {
-  const [workspaces, setWorkspaces] = useState<Array<{ id: string; name: string }>>([]);
+  const [workspaces, setWorkspaces] = useState<
+    Array<{ id: string; name: string }>
+  >([]);
   const [chats, setChats] = useState<Array<{ id: string; title: string }>>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -242,7 +243,10 @@ export default function Dashboard() {
       try {
         const [wsResp, roleResp] = await Promise.all([
           client.from("workspaces").select("id, name"),
-          client.from("chat_user_roles").select("chat_id").eq("user_id", user.id),
+          client
+            .from("chat_user_roles")
+            .select("chat_id")
+            .eq("user_id", user.id),
         ]);
 
         if (wsResp.error) throw new Error(wsResp.error.message);
@@ -347,17 +351,15 @@ export default function Dashboard() {
     }
   }
 
-  // if (!user) {
-  //   return <div className="p-8 text-red-500">No user found. Please sign in.</div>;
-  // }
   if (!isLoaded) {
     return <div className="p-8 text-gray-500">Loading your dashboard...</div>; // or spinner
   }
-  
+
   if (!user) {
-    return <div className="p-8 text-red-500">No user found. Please sign in.</div>;
+    return (
+      <div className="p-8 text-red-500">No user found. Please sign in.</div>
+    );
   }
-  
 
   return (
     <div className="flex min-h-screen">

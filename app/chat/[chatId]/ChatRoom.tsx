@@ -1,5 +1,6 @@
 "use client";
 import React, { useEffect, useRef, useState } from "react";
+import useSWR from "swr";
 import { useUser, useSession } from "@clerk/nextjs";
 import { createClient } from "@supabase/supabase-js";
 import { useParams } from "next/navigation";
@@ -7,11 +8,11 @@ import clsx from "clsx";
 import ReactMarkdown from "react-markdown";
 import { Send, Pause, MoreHorizontal, FileDown, UserPlus } from "lucide-react";
 import dynamic from "next/dynamic";
+import { Upload, FileText, Trash } from "lucide-react";
 
-const InviteModal = dynamic(
-  () => import("@/components/chat/InviteModalNew"),
-  { ssr: false }
-);
+const InviteModal = dynamic(() => import("@/components/chat/InviteModalNew"), {
+  ssr: false,
+});
 
 // Types
 interface Message {
@@ -46,6 +47,13 @@ const roleColors: Record<Role, string> = {
   viewer: "bg-gray-400 text-white",
 };
 
+// a tiny fetcher that passes through Clerk tokens
+async function fetcher(input: RequestInfo, init?: RequestInit) {
+  const res = await fetch(input, init);
+  if (!res.ok) throw new Error("Network error");
+  return res.json();
+}
+
 export default function ChatRoom() {
   const params = useParams();
   const chatId = params?.chatId as string;
@@ -71,7 +79,7 @@ export default function ChatRoom() {
   // Fetch role and chat info
   useEffect(() => {
     if (!user?.id || !chatId) return;
-    
+
     const fetchRoleAndChat = async () => {
       try {
         // Check if user is the creator of the chat
@@ -84,7 +92,7 @@ export default function ChatRoom() {
         if (chatData) {
           setChatTitle(chatData.title);
           setWorkspaceId(chatData.workspace_id);
-          
+
           // If user is the creator, they're an admin
           if (chatData.created_by === user.id) {
             setRole("admin");
@@ -92,7 +100,6 @@ export default function ChatRoom() {
             return;
           }
         }
-
 
         // First, check if user has a role in chat_user_roles
         const { data: roleData, error: roleError } = await client
@@ -118,7 +125,10 @@ export default function ChatRoom() {
           .single();
 
         if (acceptedInvite) {
-          console.log("User has accepted invite with role:", acceptedInvite.role);
+          console.log(
+            "User has accepted invite with role:",
+            acceptedInvite.role
+          );
           setRole(acceptedInvite.role as Role);
           return;
         }
@@ -131,7 +141,7 @@ export default function ChatRoom() {
           .eq("email", user.primaryEmailAddress?.emailAddress)
           .eq("accepted", false)
           .single();
-          
+
         if (pendingInvite) {
           console.log("User has pending invite");
           setRole(null);
@@ -159,6 +169,74 @@ export default function ChatRoom() {
 
     fetchRoleAndChat();
   }, [user?.id, chatId, user?.primaryEmailAddress?.emailAddress]);
+
+  // 🔁 1️⃣ SWR hook to load chat‐level contexts
+  const {
+    data: chatContexts,
+    error: chatError,
+    mutate: mutateChatContexts,
+  } = useSWR(chatId ? `/api/chat/${chatId}/contexts` : null, fetcher);
+
+  // 🗂 2️⃣ Upload a chat‐context file
+  async function handleChatFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !user) return;
+
+    const path = `chat_${chatId}/${Date.now()}_${file.name}`;
+    const { data: uploadData, error: uploadErr } = await client.storage
+      .from("contexts")
+      .upload(path, file);
+
+    if (uploadErr) {
+      console.error("Chat upload error:", uploadErr.message);
+      return;
+    }
+
+    const { data: urlData } = client.storage
+      .from("contexts")
+      .getPublicUrl(uploadData.path);
+    const publicUrl = urlData.publicUrl;
+
+    const { error: dbErr } = await client.from("chat_contexts").insert({
+      chat_id: chatId,
+      uploaded_by: user.id,
+      file_name: file.name,
+      storage_path: uploadData.path,
+      public_url: publicUrl,
+    });
+
+    if (dbErr) {
+      console.error("Chat DB insert error:", dbErr.message);
+      return;
+    }
+
+    mutateChatContexts();
+  }
+
+  // 🗑 3️⃣ Delete a chat‐context file
+  async function handleRemoveChatContext(id: string, storagePath: string) {
+    if (!confirm("Delete this context file?")) return;
+
+    // 1. delete metadata
+    const { error: dbErr } = await client
+      .from("chat_contexts")
+      .delete()
+      .eq("id", id);
+    if (dbErr) {
+      console.error("Chat context delete error:", dbErr.message);
+      return;
+    }
+
+    // 2. delete from storage
+    const { error: storageErr } = await client.storage
+      .from("contexts")
+      .remove([storagePath]);
+    if (storageErr) {
+      console.error("Storage delete error:", storageErr.message);
+    }
+
+    await mutateChatContexts();
+  }
 
   // Fetch messages
   useEffect(() => {
@@ -238,11 +316,13 @@ export default function ChatRoom() {
   }, [messages]);
 
   // Handle sending invites
-  const handleSendInvites = async (invites: { email: string; role: string }[]) => {
+  const handleSendInvites = async (
+    invites: { email: string; role: string }[]
+  ) => {
     try {
       // First, insert the invites into the database
       const { data: insertedInvites, error } = await client
-        .from('chat_invites')
+        .from("chat_invites")
         .insert(
           invites.map((invite) => ({
             chat_id: chatId,
@@ -258,26 +338,26 @@ export default function ChatRoom() {
       // Send email notifications for each invite
       const emailPromises = invites.map(async (invite, index) => {
         try {
-          const response = await fetch('/api/send-invite', {
-            method: 'POST',
+          const response = await fetch("/api/send-invite", {
+            method: "POST",
             headers: {
-              'Content-Type': 'application/json',
+              "Content-Type": "application/json",
             },
             body: JSON.stringify({
               inviteId: insertedInvites?.[index]?.id, // Get the ID of the inserted invite
               inviteeEmail: invite.email,
-              inviterName: user?.fullName || user?.username || 'Someone',
-              chatTitle: chatTitle || 'a chat',
+              inviterName: user?.fullName || user?.username || "Someone",
+              chatTitle: chatTitle || "a chat",
               role: invite.role,
             }),
           });
 
           if (!response.ok) {
             const error = await response.json();
-            console.error('Failed to send invite email:', error);
+            console.error("Failed to send invite email:", error);
           }
         } catch (err) {
-          console.error('Error sending invite email:', err);
+          console.error("Error sending invite email:", err);
         }
       });
 
@@ -286,81 +366,410 @@ export default function ChatRoom() {
 
       return { success: true };
     } catch (err) {
-      console.error('Error sending invites:', err);
+      console.error("Error sending invites:", err);
       return { success: false, error: err };
     }
   };
 
   // Send message
+  // async function handleSend(e: React.FormEvent) {
+  //   e.preventDefault();
+  //   if (!input.trim() || !user?.id || !chatId) return;
+  //   setLoading(true);
+  //   setError("");
+  //   // Insert user message
+  //   const { error: msgError } = await client.from("messages").insert({
+  //     chat_id: chatId,
+  //     user_id: user.id,
+  //     sender_type: "user",
+  //     content: input.trim(),
+  //   });
+  //   if (msgError) {
+  //     setError(msgError.message);
+  //     setLoading(false);
+  //     return;
+  //   }
+  //   setInput("");
+  //   setLoading(false);
+
+  //   // Fetch last 20 messages for context
+  //   const { data: lastMessages } = await client
+  //     .from("messages")
+  //     .select("content, sender_type, user_id")
+  //     .eq("chat_id", chatId)
+  //     .order("created_at", { ascending: false })
+  //     .limit(20);
+  //   const contextMessages = (lastMessages || []).reverse();
+  //   // Format for Gemini
+  //   const geminiContext = contextMessages.map((msg: any) => ({
+  //     role: msg.sender_type === "ai" ? "assistant" : "user",
+  //     content: msg.content,
+  //   }));
+  //   // geminiContext.push({ role: "user", content: input.trim() });
+  //   const lastMsg = contextMessages[contextMessages.length - 1];
+  //   if (!lastMsg || lastMsg.content !== input.trim()) {
+  //     geminiContext.push({ role: "user", content: input.trim() });
+  //   }
+
+  //   // Call Gemini API via /api/ai
+  //   let aiReply = "[Gemini AI reply placeholder]";
+  //   setAiLoading(true);
+  //   try {
+  //     const res = await fetch("/api/ai", {
+  //       method: "POST",
+  //       headers: { "Content-Type": "application/json" },
+  //       body: JSON.stringify({ context: geminiContext }),
+  //     });
+  //     const data = await res.json();
+  //     aiReply = data.reply || aiReply;
+  //     if (!data.reply) {
+  //       setError("AI did not return a reply.");
+  //     }
+  //     // Insert AI reply only if we got a response
+  //     if (aiReply && aiReply !== "[Gemini AI reply placeholder]") {
+  //       const { error: aiMsgError } = await client.from("messages").insert({
+  //         chat_id: chatId,
+  //         user_id: null,
+  //         sender_type: "ai",
+  //         content: aiReply,
+  //       });
+  //       if (aiMsgError) {
+  //         setError("Failed to store AI message: " + aiMsgError.message);
+  //       }
+  //       // Do NOT optimistically update UI here; real-time will handle it
+  //     }
+  //   } catch (err) {
+  //     setError("AI error: " + (err as Error).message);
+  //     aiReply = "Sorry, I couldn't generate a reply.";
+  //   } finally {
+  //     setAiLoading(false);
+  //   }
+  // }
+  //   async function handleSend(e: React.FormEvent) {
+  //     e.preventDefault();
+  //     if (!input.trim() || !user?.id || !chatId) return;
+  //     setLoading(true);
+  //     setError("");
+
+  //     // Insert user message
+  //     const userInput = input.trim();
+  //     const { error: msgError } = await client.from("messages").insert({
+  //       chat_id: chatId,
+  //       user_id: user.id,
+  //       sender_type: "user",
+  //       content: userInput,
+  //     });
+
+  //     if (msgError) {
+  //       setError(msgError.message);
+  //       setLoading(false);
+  //       return;
+  //     }
+
+  //     setInput("");
+  //     setLoading(false);
+  //     setAiLoading(true);
+
+  //     // Fetch context
+  //     const { data: lastMessages } = await client
+  //       .from("messages")
+  //       .select("content, sender_type, user_id")
+  //       .eq("chat_id", chatId)
+  //       .order("created_at", { ascending: false })
+  //       .limit(20);
+
+  //     const contextMessages = (lastMessages || []).reverse();
+  //     const geminiContext = contextMessages.map((msg: any) => ({
+  //       role: msg.sender_type === "ai" ? "assistant" : "user",
+  //       content: msg.content,
+  //     }));
+  //     geminiContext.push({ role: "user", content: userInput });
+
+  //     try {
+  //       const response = await fetch("/api/ai", {
+  //         method: "POST",
+  //         headers: { "Content-Type": "application/json" },
+  //         body: JSON.stringify({ context: geminiContext }),
+  //       });
+
+  //       if (!response.body) {
+  //         throw new Error("No response stream");
+  //       }
+
+  //       const reader = response.body.getReader();
+  //       const decoder = new TextDecoder("utf-8");
+  //       let fullText = "";
+
+  //       // Insert placeholder AI message into DB
+  //       const { data: insertedAiMsg, error: insertError } = await client
+  //         .from("messages")
+  //         .insert({
+  //           chat_id: chatId,
+  //           user_id: null,
+  //           sender_type: "ai",
+  //           content: "",
+  //         })
+  //         .select()
+  //         .single();
+
+  //       if (insertError || !insertedAiMsg?.id) throw insertError;
+
+  //       const msgId = insertedAiMsg.id;
+
+  //       // Add AI message to local state immediately
+  //       // setMessages((prev) => [
+  //       //   ...prev,
+  //       //   {
+  //       //     id: msgId,
+  //       //     chat_id: chatId,
+  //       //     user_id: null,
+  //       //     sender_type: "ai",
+  //       //     content: "",
+  //       //     created_at: new Date().toISOString(),
+  //       //     updated_at: new Date().toISOString(),
+  //       //   },
+  //       // ]);
+
+  //       // Start streaming
+  //       // while (true) {
+  //       //   const { done, value } = await reader.read();
+  //       //   if (done) break;
+
+  //       //   const chunk = decoder.decode(value);
+  //       //   fullText += chunk;
+
+  //       //   // Update local message state
+  //       //   setMessages((prev) =>
+  //       //     prev.map((m) =>
+  //       //       m.id === msgId
+  //       //         ? {
+  //       //             ...m,
+  //       //             content: fullText,
+  //       //             updated_at: new Date().toISOString(),
+  //       //           }
+  //       //         : m
+  //       //     )
+  //       //   );
+
+  //       //   // Also update in DB
+  //       //   await client
+  //       //     .from("messages")
+  //       //     .update({ content: fullText })
+  //       //     .eq("id", msgId);
+  //       // }
+  //       let updateCounter = 0;
+  // let lastUpdateTime = Date.now();
+
+  // while (true) {
+  //   const { done, value } = await reader.read();
+  //   if (done) break;
+
+  //   const chunk = decoder.decode(value);
+
+  //   for (const char of chunk) {
+  //     fullText += char;
+
+  //     // Update local message in state (typing effect)
+  //     setMessages((prev) =>
+  //       prev.map((m) =>
+  //         m.id === msgId
+  //           ? {
+  //               ...m,
+  //               content: fullText + "▍", // Optional blinking cursor
+  //               updated_at: new Date().toISOString(),
+  //             }
+  //           : m
+  //       )
+  //     );
+
+  //     await new Promise((res) => setTimeout(res, 3)); // Typing speed
+
+  //     updateCounter++;
+
+  //     // Debounced DB update (every 20 chars or 500ms)
+  //     if (updateCounter >= 20 || Date.now() - lastUpdateTime > 500) {
+  //       await client
+  //         .from("messages")
+  //         .update({ content: fullText })
+  //         .eq("id", msgId);
+  //       updateCounter = 0;
+  //       lastUpdateTime = Date.now();
+  //     }
+  //   }
+  // }
+
+  // // Final update to remove cursor and save final content
+  // await client
+  //   .from("messages")
+  //   .update({ content: fullText })
+  //   .eq("id", msgId);
+
+  // // Final UI update
+  // setMessages((prev) =>
+  //   prev.map((m) =>
+  //     m.id === msgId
+  //       ? {
+  //           ...m,
+  //           content: fullText,
+  //           updated_at: new Date().toISOString(),
+  //         }
+  //       : m
+  //   )
+  // );
+
+  //       if (!fullText.trim()) {
+  //         // Delete empty AI reply
+  //         await client.from("messages").delete().eq("id", msgId);
+  //         setError("AI did not return any reply.");
+  //       }
+  //     } catch (err: any) {
+  //       console.error("Streaming error:", err);
+  //       setError("AI error: " + err.message);
+  //     } finally {
+  //       setAiLoading(false);
+  //     }
+  //   }
+
   async function handleSend(e: React.FormEvent) {
     e.preventDefault();
     if (!input.trim() || !user?.id || !chatId) return;
+
     setLoading(true);
     setError("");
+
+    const userInput = input.trim();
+
     // Insert user message
     const { error: msgError } = await client.from("messages").insert({
       chat_id: chatId,
       user_id: user.id,
       sender_type: "user",
-      content: input.trim(),
+      content: userInput,
     });
+
     if (msgError) {
       setError(msgError.message);
       setLoading(false);
       return;
     }
+
     setInput("");
     setLoading(false);
+    setAiLoading(true);
 
-    // Fetch last 20 messages for context
+    // Fetch context
     const { data: lastMessages } = await client
       .from("messages")
       .select("content, sender_type, user_id")
       .eq("chat_id", chatId)
       .order("created_at", { ascending: false })
       .limit(20);
+
     const contextMessages = (lastMessages || []).reverse();
-    // Format for Gemini
     const geminiContext = contextMessages.map((msg: any) => ({
       role: msg.sender_type === "ai" ? "assistant" : "user",
       content: msg.content,
     }));
-    // geminiContext.push({ role: "user", content: input.trim() });
-    const lastMsg = contextMessages[contextMessages.length - 1];
-    if (!lastMsg || lastMsg.content !== input.trim()) {
-      geminiContext.push({ role: "user", content: input.trim() });
-    }
+    geminiContext.push({ role: "user", content: userInput });
 
-    // Call Gemini API via /api/ai
-    let aiReply = "[Gemini AI reply placeholder]";
-    setAiLoading(true);
     try {
-      const res = await fetch("/api/ai", {
+      const response = await fetch("/api/ai", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ context: geminiContext }),
       });
-      const data = await res.json();
-      aiReply = data.reply || aiReply;
-      if (!data.reply) {
-        setError("AI did not return a reply.");
-      }
-      // Insert AI reply only if we got a response
-      if (aiReply && aiReply !== "[Gemini AI reply placeholder]") {
-        const { error: aiMsgError } = await client.from("messages").insert({
+
+      if (!response.body) throw new Error("No response stream");
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder("utf-8");
+
+      let fullText = "";
+      let updateCounter = 0;
+      let lastUpdateTime = Date.now();
+
+      // Insert placeholder AI message into DB
+      const { data: insertedAiMsg, error: insertError } = await client
+        .from("messages")
+        .insert({
           chat_id: chatId,
           user_id: null,
           sender_type: "ai",
-          content: aiReply,
-        });
-        if (aiMsgError) {
-          setError("Failed to store AI message: " + aiMsgError.message);
+          content: "",
+        })
+        .select()
+        .single();
+
+      if (insertError || !insertedAiMsg?.id) throw insertError;
+
+      const msgId = insertedAiMsg.id;
+
+      // Add initial message in UI
+      // setMessages((prev) => [...prev, { ...insertedAiMsg, content: "" }]);
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+
+        for (const char of chunk) {
+          fullText += char;
+
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === msgId
+                ? {
+                    ...m,
+                    content: fullText + "▍",
+                    updated_at: new Date().toISOString(),
+                  }
+                : m
+            )
+          );
+
+          messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+
+          await new Promise((res) => setTimeout(res, 3));
+
+          updateCounter++;
+
+          if (updateCounter >= 20 || Date.now() - lastUpdateTime > 500) {
+            await client
+              .from("messages")
+              .update({ content: fullText })
+              .eq("id", msgId);
+            updateCounter = 0;
+            lastUpdateTime = Date.now();
+          }
         }
-        // Do NOT optimistically update UI here; real-time will handle it
       }
-    } catch (err) {
-      setError("AI error: " + (err as Error).message);
-      aiReply = "Sorry, I couldn't generate a reply.";
+
+      // Final content update (removes ▍ and stores final content)
+      await client
+        .from("messages")
+        .update({ content: fullText })
+        .eq("id", msgId);
+
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === msgId
+            ? {
+                ...m,
+                content: fullText,
+                updated_at: new Date().toISOString(),
+              }
+            : m
+        )
+      );
+
+      if (!fullText.trim()) {
+        await client.from("messages").delete().eq("id", msgId);
+        setError("AI did not return any reply.");
+      }
+    } catch (err: any) {
+      console.error("Streaming error:", err);
+      setError("AI error: " + err.message);
     } finally {
       setAiLoading(false);
     }
@@ -406,8 +815,65 @@ export default function ChatRoom() {
           )}
         </div>
         <div className="flex items-center gap-2">
-          <button 
-            className="p-2 rounded hover:bg-gray-100" 
+          {/* ── Chat Context Files ── */}
+          <section className="px-6 py-4 border-b bg-white">
+            <h2 className="font-semibold">📁 Chat Context Files</h2>
+            <label
+              htmlFor="chat-file-upload"
+              className="inline-flex items-center gap-1 mt-2 mb-4 cursor-pointer bg-green-600 text-white px-3 py-1 rounded"
+            >
+              <Upload className="w-4 h-4" />
+              Upload Context
+              <input
+                id="chat-file-upload"
+                type="file"
+                accept=".pdf,.txt,.md"
+                onChange={handleChatFileChange}
+                className="hidden"
+              />
+            </label>
+
+            {chatError && (
+              <p className="text-red-500">Failed to load chat contexts.</p>
+            )}
+            {!chatContexts ? (
+              <p className="text-gray-600">Loading chat contexts…</p>
+            ) : chatContexts.length === 0 ? (
+              <p className="text-gray-400 italic">
+                No chat‐level context files.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {chatContexts.map((ctx: any) => (
+                  <div
+                    key={ctx.id}
+                    className="flex items-center justify-between bg-gray-50 p-2 rounded"
+                  >
+                    <a
+                      href={ctx.public_url}
+                      target="_blank"
+                      className="flex items-center gap-1 text-green-700 hover:underline"
+                    >
+                      <FileText className="w-4 h-4" />
+                      {ctx.file_name}
+                    </a>
+                    <button
+                      onClick={() =>
+                        handleRemoveChatContext(ctx.id, ctx.storage_path)
+                      }
+                      className="text-gray-500 hover:text-red-600"
+                      aria-label="Delete context"
+                    >
+                      <Trash className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <button
+            className="p-2 rounded hover:bg-gray-100"
             title="Invite"
             onClick={() => setIsInviteModalOpen(true)}
           >
@@ -501,6 +967,7 @@ export default function ChatRoom() {
                     >
                       {msg.content}
                     </ReactMarkdown>
+                    <div ref={messagesEndRef} className="h-px" />
                   </div>
                 ) : (
                   msg.content

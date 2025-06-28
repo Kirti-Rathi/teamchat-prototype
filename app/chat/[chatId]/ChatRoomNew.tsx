@@ -1,17 +1,17 @@
 "use client";
-import React, { useState, useEffect, useRef } from 'react';
-import { Message, Role } from '@/types/message';
-import MessageList from '@/components/chat/MessageList';
-import ChatInput from '@/components/chat/ChatInput';
-import ChatHeader from '@/components/chat/ChatHeader';
-import ErrorBanner from '@/components/chat/ErrorBanner';
+import React, { useState, useEffect, useRef } from "react";
+import { Message, Role } from "@/types/message";
+import MessageList from "@/components/chat/MessageList";
+import ChatInput from "@/components/chat/ChatInput";
+import ChatHeader from "@/components/chat/ChatHeader";
+import ErrorBanner from "@/components/chat/ErrorBanner";
 import { useParams } from "next/navigation";
 import { useUser, useSession } from "@clerk/nextjs";
-import { createClient } from '@supabase/supabase-js';
-import { useUserRole } from '@/hooks/useUserRole';
-import { useChatMessages } from '@/hooks/useChatMessages';
-import { useChatMetadata } from '@/hooks/useChatMetadata';
-import { getInitials } from '@/lib/utils/getInitials';
+import { createClient } from "@supabase/supabase-js";
+import { useUserRole } from "@/hooks/useUserRole";
+import { useChatMessages } from "@/hooks/useChatMessages";
+import { useChatMetadata } from "@/hooks/useChatMetadata";
+import { getInitials } from "@/lib/utils/getInitials";
 
 function createClerkSupabaseClient(session: any) {
   return createClient(
@@ -42,7 +42,10 @@ const ChatRoomNew = () => {
 
   // Hooks
   const role = useUserRole(chatId, user?.id, session);
-  const { messages, loading: messagesLoading } = useChatMessages(chatId, session);
+  const { messages, loading: messagesLoading } = useChatMessages(
+    chatId,
+    session
+  );
   const { chatTitle, adminInfo } = useChatMetadata(chatId, session);
 
   // Effects
@@ -56,7 +59,7 @@ const ChatRoomNew = () => {
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() || !user?.id || !chatId) return;
-    
+
     setLoading(true);
     setError("");
 
@@ -146,12 +149,8 @@ const ChatRoomNew = () => {
 
   return (
     <div className="flex-1 flex flex-col h-full overflow-x-hidden">
-      <ChatHeader 
-        title={chatTitle} 
-        role={role} 
-        adminInfo={adminInfo}
-      />
-      
+      <ChatHeader title={chatTitle} role={role} adminInfo={adminInfo} />
+
       <main className="flex-1 flex flex-col">
         <div className="flex-1 overflow-y-auto p-4">
           <MessageList

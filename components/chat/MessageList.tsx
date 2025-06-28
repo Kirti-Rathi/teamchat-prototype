@@ -7,14 +7,14 @@ interface MessageListProps {
   messages: Message[];
   currentUserInitials: string;
   loading: boolean;
-  messagesEndRef: RefObject<HTMLDivElement | null>; 
+  messagesEndRef: RefObject<HTMLDivElement | null>;
 }
 
 const MessageList: React.FC<MessageListProps> = ({
   messages,
-  currentUserInitials, 
+  currentUserInitials,
   loading,
-  messagesEndRef
+  messagesEndRef,
 }) => {
   if (loading) {
     return (
@@ -38,7 +38,6 @@ const MessageList: React.FC<MessageListProps> = ({
         />
       ))}
       <div ref={messagesEndRef} />
-
     </>
   );
 };

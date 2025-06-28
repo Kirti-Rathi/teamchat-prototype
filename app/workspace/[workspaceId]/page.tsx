@@ -1,19 +1,27 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import useSWR from "swr";
 import { useSession, useUser } from "@clerk/nextjs";
 import { createClient } from "@supabase/supabase-js";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import InviteModal from "@/components/chat/InviteModalNew";
-import { UserPlus } from "lucide-react";
+import { UserPlus, Upload, FileText, Trash } from "lucide-react";
+
+// a tiny fetcher that passes through Clerk tokens
+async function fetcher(input: RequestInfo, init?: RequestInit) {
+  const res = await fetch(input, init);
+  if (!res.ok) throw new Error("Network error");
+  return res.json();
+}
 
 const Workspace = () => {
   const params = useParams();
   const workspaceId = params?.workspaceId as string;
   const [chats, setChats] = useState<Array<{ id: string; title: string }>>([]);
   const [workspaceName, setWorkspaceName] = useState("");
-  const [isInviteModalOpen, setIsInviteModalOpen] = useState(false); 
+  const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -36,9 +44,19 @@ const Workspace = () => {
 
   console.log("WorkspaceID at top level:", workspaceId);
 
+  // 1️⃣ SWR hook to load workspace‐level contexts
+  const {
+    data: wsContexts,
+    error: wsError,
+    mutate: mutateWsContexts,
+  } = useSWR(
+    workspaceId ? `/api/workspace/${workspaceId}/contexts` : null,
+    fetcher
+  );
+
   useEffect(() => {
     if (!workspaceId || !session) return;
-  
+
     async function fetchWorkspaceName() {
       const { data, error } = await client
         .from("workspaces")
@@ -48,7 +66,6 @@ const Workspace = () => {
 
       console.log("workspaceId passed to fetch:", workspaceId);
 
-  
       if (error) {
         console.error("Failed to fetch workspace name:", error.message);
         setWorkspaceName("Unnamed Workspace");
@@ -56,10 +73,9 @@ const Workspace = () => {
         setWorkspaceName(data.name);
       }
     }
-  
+
     fetchWorkspaceName();
   }, [workspaceId, session]);
-  
 
   // useEffect(() => {
   //   const fetchChats = async () => {
@@ -153,10 +169,12 @@ const Workspace = () => {
     setLoading(false);
   }
 
-  const handleSendWorkspaceInvites = async (invites: { email: string; role: string }[]) => {
+  const handleSendWorkspaceInvites = async (
+    invites: { email: string; role: string }[]
+  ) => {
     try {
       const { data: insertedInvites, error } = await client
-        .from('workspace_invites')
+        .from("workspace_invites")
         .insert(
           invites.map((invite) => ({
             workspace_id: workspaceId, // Make sure this is in scope
@@ -166,43 +184,135 @@ const Workspace = () => {
           }))
         )
         .select();
-  
+
       if (error) throw error;
-  
+
       const emailPromises = invites.map(async (invite, index) => {
         try {
-          const response = await fetch('/api/send-workspace-invite', {
-            method: 'POST',
+          const response = await fetch("/api/send-workspace-invite", {
+            method: "POST",
             headers: {
-              'Content-Type': 'application/json',
+              "Content-Type": "application/json",
             },
             body: JSON.stringify({
               inviteId: insertedInvites?.[index]?.id,
               inviteeEmail: invite.email,
-              inviterName: user?.fullName || user?.username || 'Someone',
-              workspaceName: workspaceName || 'a workspace',
+              inviterName: user?.fullName || user?.username || "Someone",
+              workspaceName: workspaceName || "a workspace",
               role: invite.role,
             }),
           });
-  
+
           if (!response.ok) {
             const error = await response.json();
-            console.error('Failed to send workspace invite email:', error);
+            console.error("Failed to send workspace invite email:", error);
           }
         } catch (err) {
-          console.error('Error sending workspace invite email:', err);
+          console.error("Error sending workspace invite email:", err);
         }
       });
-  
+
       await Promise.all(emailPromises);
-  
+
       return { success: true };
     } catch (err) {
-      console.error('Error sending workspace invites:', err);
+      console.error("Error sending workspace invites:", err);
       return { success: false, error: err };
     }
   };
-  
+
+  // 2️⃣ Handle file selection
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !user) return;
+
+    // 2a. upload to Supabase Storage
+    const path = `ws_${workspaceId}/${Date.now()}_${file.name}`;
+    const { data: uploadData, error: uploadErr } = await client.storage
+      .from("contexts")
+      .upload(path, file);
+
+    // console.log("Upload data:", uploadData);
+
+    if (uploadErr) {
+      console.error("Upload error:", uploadErr.message);
+      return;
+    }
+
+    const { data: urlData } = client.storage
+      .from("contexts")
+      .getPublicUrl(uploadData.path);
+
+    // now grab the string out
+    const publicUrl = urlData.publicUrl;
+
+    // console.log("Public URL:", publicUrl);
+
+    // 2b. insert metadata row
+    const { error: dbErr } = await client.from("workspace_contexts").insert({
+      workspace_id: workspaceId,
+      uploaded_by: user.id,
+      file_name: file.name,
+      storage_path: uploadData.path,
+      public_url: publicUrl,
+    });
+
+    if (dbErr) {
+      console.error("DB insert error:", dbErr.message);
+      return;
+    }
+
+    // 3️⃣ re‑fetch contexts list so sidebar updates
+    mutateWsContexts();
+  }
+
+  console.log("SWR:", {
+    key: workspaceId ? `/api/workspace/${workspaceId}/contexts` : null,
+    wsContexts,
+    wsError,
+  });
+
+  // 3️⃣ Remove a context file
+  async function handleRemoveContext(id: string, storagePath: string) {
+    // Confirm with the user
+    if (!window.confirm("Are you sure you want to delete this context file?")) {
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+    setSuccess("");
+
+    // 1. Delete metadata row from workspace_contexts
+    const { error: dbErr } = await client
+      .from("workspace_contexts")
+      .delete()
+      .eq("id", id);
+
+    if (dbErr) {
+      console.error("DB delete error:", dbErr.message);
+      setError("Failed to delete context metadata.");
+      setLoading(false);
+      return;
+    }
+
+    // 2. Delete the actual file from Supabase Storage
+    const { error: storageErr } = await client.storage
+      .from("contexts")
+      .remove([storagePath]);
+
+    if (storageErr) {
+      console.error("Storage delete error:", storageErr.message);
+      // Not fatal — metadata is gone, but file might linger.
+      setError("Metadata deleted, but failed to remove the file.");
+    } else {
+      setSuccess("Context file removed successfully.");
+    }
+
+    // 3. Refresh the list
+    await mutateWsContexts();
+    setLoading(false);
+  }
 
   return (
     <div className="p-8">
@@ -214,18 +324,18 @@ const Workspace = () => {
       >
         + New Chat
       </button>
-      <button 
-        className="p-2 rounded hover:bg-gray-100" 
+      <button
+        className="p-2 rounded hover:bg-gray-100"
         title="Invite"
         onClick={() => setIsInviteModalOpen(true)}
       >
         <UserPlus size={20} />
       </button>
       <InviteModal
-          isOpen={isInviteModalOpen}
-          onClose={() => setIsInviteModalOpen(false)}
-          onSend={handleSendWorkspaceInvites}
-        />
+        isOpen={isInviteModalOpen}
+        onClose={() => setIsInviteModalOpen(false)}
+        onSend={handleSendWorkspaceInvites}
+      />
       {error && <div className="text-red-500 mb-2">{error}</div>}
       {success && <div className="text-green-600 mb-2">{success}</div>}
       {loading ? (
@@ -249,6 +359,61 @@ const Workspace = () => {
           ))}
         </div>
       )}
+      <section className="mt-8 space-y-4">
+        <h2 className="text-xl font-semibold text-gray-800">
+          📁 Workspace Context Files
+        </h2>
+
+        {/* File Upload */}
+        <label
+          htmlFor="file-upload"
+          className="flex items-center gap-2 cursor-pointer bg-blue-600 text-white px-4 py-2 rounded-md w-fit hover:bg-blue-700 transition"
+        >
+          <Upload className="w-4 h-4" />
+          Upload File
+          <input
+            id="file-upload"
+            type="file"
+            accept=".pdf,.txt,.md"
+            onChange={handleFileChange}
+            className="hidden"
+          />
+        </label>
+
+        {/* Context List */}
+        {wsError && <p className="text-red-500">⚠️ Failed to load contexts</p>}
+
+        {!wsContexts ? (
+          <p className="text-gray-600">⏳ Loading contexts…</p>
+        ) : wsContexts.length === 0 ? (
+          <p className="text-gray-400 italic">No context files uploaded yet.</p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {wsContexts.map((ctx: any) => (
+              <div
+                key={ctx.id}
+                className="relative border border-gray-200 rounded-lg p-4 shadow-sm bg-white hover:shadow-md transition"
+              >
+                <a
+                  href={ctx.public_url}
+                  target="_blank"
+                  className="flex items-center text-blue-600 hover:underline"
+                >
+                  <FileText className="w-5 h-5 mr-2 text-blue-500" />
+                  {ctx.file_name}
+                </a>
+                <button
+                  onClick={() => handleRemoveContext(ctx.id, ctx.storage_path)}
+                  className="absolute top-2 right-2 text-gray-400 hover:text-red-600 transition"
+                  aria-label="Remove context file"
+                >
+                  <Trash className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
     </div>
   );
 };

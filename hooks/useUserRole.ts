@@ -2,7 +2,11 @@ import { useEffect, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { Role } from "@/types/message";
 
-export function useUserRole(chatId: string, userId: string | undefined, session: any) {
+export function useUserRole(
+  chatId: string,
+  userId: string | undefined,
+  session: any
+) {
   const [role, setRole] = useState<Role | null>(null);
 
   const client = createClient(

@@ -4,7 +4,10 @@ import { createClient } from "@supabase/supabase-js";
 export function useChatMetadata(chatId: string, session: any) {
   const [chatTitle, setChatTitle] = useState("");
   const [workspaceName, setWorkspaceName] = useState("");
-  const [adminInfo, setAdminInfo] = useState<{ email?: string; username?: string } | null>(null);
+  const [adminInfo, setAdminInfo] = useState<{
+    email?: string;
+    username?: string;
+  } | null>(null);
 
   const client = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,

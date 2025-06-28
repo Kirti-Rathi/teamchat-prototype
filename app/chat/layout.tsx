@@ -45,14 +45,14 @@ export default function ChatLayout({
           .select("workspace_id")
           .eq("id", chatId)
           .single();
-        
+
         if (chatData?.workspace_id) {
           const { data: ws } = await client
             .from("workspaces")
             .select("name")
             .eq("id", chatData.workspace_id)
             .single();
-          
+
           // Set both workspaceId and name in a single update to avoid flickering
           setWorkspaceId(chatData.workspace_id);
           setWorkspaceName(ws?.name || "");
@@ -61,7 +61,7 @@ export default function ChatLayout({
           setWorkspaceName("");
         }
       } catch (error) {
-        console.error('Error fetching workspace name:', error);
+        console.error("Error fetching workspace name:", error);
         setWorkspaceName("");
       }
     };

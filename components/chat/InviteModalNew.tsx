@@ -15,7 +15,11 @@ interface InviteModalProps {
   onSend: (invites: Invite[]) => void;
 }
 
-const InviteModal: React.FC<InviteModalProps> = ({ isOpen, onClose, onSend }) => {
+const InviteModal: React.FC<InviteModalProps> = ({
+  isOpen,
+  onClose,
+  onSend,
+}) => {
   const [input, setInput] = useState("");
   const [selectedRole, setSelectedRole] = useState<Role>("viewer");
   const [invites, setInvites] = useState<Invite[]>([]);

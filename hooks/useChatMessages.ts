@@ -37,18 +37,22 @@ export function useChatMessages(chatId: string, session: any) {
     // Create a new channel for real-time updates
     const channel = client
       .channel(`messages:chat:${chatId}`)
-      .on("postgres_changes", {
-        event: "INSERT",
-        schema: "public",
-        table: "messages",
-        filter: `chat_id=eq.${chatId}`,
-      }, (payload) => {
-        console.log("Received real-time update:", payload);
-        setMessages(prev => [...prev, payload.new as Message]);
-      })
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "messages",
+          filter: `chat_id=eq.${chatId}`,
+        },
+        (payload) => {
+          console.log("Received real-time update:", payload);
+          setMessages((prev) => [...prev, payload.new as Message]);
+        }
+      )
       .subscribe();
 
-      // Initial fetch when subscription is established
+    // Initial fetch when subscription is established
     channel.on("status", (status) => {
       console.log("Subscription status:", status);
       if (status === "SUBSCRIBED") {

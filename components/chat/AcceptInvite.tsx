@@ -1,32 +1,34 @@
-'use client';
+"use client";
 
-import { useEffect, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
-import { Loader2 } from 'lucide-react';
+import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Loader2 } from "lucide-react";
 
 export default function AcceptInvite() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
-  const [error, setError] = useState('');
+  const [status, setStatus] = useState<"loading" | "success" | "error">(
+    "loading"
+  );
+  const [error, setError] = useState("");
 
   useEffect(() => {
     const acceptInvite = async () => {
-      const inviteId = searchParams.get('invite');
+      const inviteId = searchParams.get("invite");
       if (!inviteId) {
-        setStatus('error');
-        setError('No invite ID provided');
+        setStatus("error");
+        setError("No invite ID provided");
         return;
       }
 
       try {
         // console.log('Sending invite acceptance request...');
-        const response = await fetch('/api/accept-invite', {
-          method: 'POST',
+        const response = await fetch("/api/accept-invite", {
+          method: "POST",
           headers: {
-            'Content-Type': 'application/json',
+            "Content-Type": "application/json",
           },
-          credentials: 'include', // This ensures cookies are sent with the request
+          credentials: "include", // This ensures cookies are sent with the request
           body: JSON.stringify({ inviteId }),
         });
 
@@ -35,7 +37,7 @@ export default function AcceptInvite() {
 
         // Check if invite was already accepted and backend tells you so
         if (data.alreadyAccepted && data.chatId) {
-          setStatus('success');
+          setStatus("success");
           setTimeout(() => {
             router.push(`/chat/${data.chatId}`);
           }, 2000);
@@ -44,26 +46,28 @@ export default function AcceptInvite() {
 
         // If it's a real error (e.g. malformed or revoked invite), handle it
         if (!response.ok) {
-          throw new Error(data.error || 'Failed to accept invite');
+          throw new Error(data.error || "Failed to accept invite");
         }
 
         // Normal flow: invite accepted for the first time
-        setStatus('success');
+        setStatus("success");
         // Redirect to the chat after a short delay
         setTimeout(() => {
           router.push(`/chat/${data.chatId}`);
         }, 2000);
       } catch (err) {
-        console.error('Error accepting invite:', err);
-        setStatus('error');
-        setError(err instanceof Error ? err.message : 'Failed to accept invite');
+        console.error("Error accepting invite:", err);
+        setStatus("error");
+        setError(
+          err instanceof Error ? err.message : "Failed to accept invite"
+        );
       }
     };
 
     acceptInvite();
   }, [searchParams, router]);
 
-  if (status === 'loading') {
+  if (status === "loading") {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen">
         <Loader2 className="w-8 h-8 animate-spin mb-4" />
@@ -72,7 +76,7 @@ export default function AcceptInvite() {
     );
   }
 
-  if (status === 'error') {
+  if (status === "error") {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen">
         <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
