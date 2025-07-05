@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
 
     const row = {
       id: d.id, // Clerk ID
-      email: d.email_addresses?.[0]?.email_address,
+      email: d.email_addresses?.[0]?.email,
     };
 
     console.log("Webhook data:", row);

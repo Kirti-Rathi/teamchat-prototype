@@ -1,51 +1,30 @@
 "use client";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useMemo } from "react";
 import useSWR from "swr";
 import { useUser, useSession } from "@clerk/nextjs";
-import { createClient } from "@supabase/supabase-js";
+// import createClerkSupabaseClient from "@/lib/supabaseClient";
+import { Message, Role } from "@/types/message";
+import { roleColors } from "@/lib/utils/formatRoleLabel";
 import { useParams } from "next/navigation";
 import clsx from "clsx";
 import ReactMarkdown from "react-markdown";
 import { Send, Pause, MoreHorizontal, FileDown, UserPlus } from "lucide-react";
 import dynamic from "next/dynamic";
 import { Upload, FileText, Trash } from "lucide-react";
+import { SupabaseClient } from "@supabase/supabase-js";
+// import { ChatHeader } from "@/components/chat/ChatHeader";
+import Header from "@/components/chat/Header";
 
-const InviteModal = dynamic(() => import("@/components/chat/InviteModalNew"), {
-  ssr: false,
-});
-
-// Types
-interface Message {
-  id: string;
-  chat_id: string;
-  user_id: string | null;
-  sender_type: "ai" | "user";
-  content: string;
-  created_at: string;
-  updated_at: string;
-  user?: { email?: string };
-}
-
-type Role = "admin" | "member" | "guest" | "viewer";
-
-function createClerkSupabaseClient(session: any) {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      async accessToken() {
-        return session?.getToken() ?? null;
-      },
-    }
-  );
-}
-
-const roleColors: Record<Role, string> = {
-  admin: "bg-blue-600 text-white",
-  member: "bg-green-600 text-white",
-  guest: "bg-yellow-500 text-white",
-  viewer: "bg-gray-400 text-white",
+type ChatRoomProps = {
+  client: SupabaseClient;
 };
+
+const InviteModal = dynamic(
+  () => import("@/components/chat/Header/InviteModal"),
+  {
+    ssr: false,
+  }
+);
 
 // a tiny fetcher that passes through Clerk tokens
 async function fetcher(input: RequestInfo, init?: RequestInit) {
@@ -54,12 +33,12 @@ async function fetcher(input: RequestInfo, init?: RequestInit) {
   return res.json();
 }
 
-export default function ChatRoom() {
+export default function ChatRoom({ client }: ChatRoomProps) {
   const params = useParams();
   const chatId = params?.chatId as string;
   const { user } = useUser();
-  const { session } = useSession();
-  const client = createClerkSupabaseClient(session);
+  // const { session } = useSession();
+  // const client = useMemo(() => createClerkSupabaseClient(session), [session]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [role, setRole] = useState<Role | null>(null);
   const [input, setInput] = useState("");
@@ -304,6 +283,7 @@ export default function ChatRoom() {
 
     return () => {
       channel.unsubscribe();
+      // client.removeAllChannels();
     };
   }, [chatId]);
 
@@ -815,7 +795,6 @@ export default function ChatRoom() {
           )}
         </div>
         <div className="flex items-center gap-2">
-          {/* ── Chat Context Files ── */}
           <section className="px-6 py-4 border-b bg-white">
             <h2 className="font-semibold">📁 Chat Context Files</h2>
             <label
@@ -889,6 +868,7 @@ export default function ChatRoom() {
           onSend={handleSendInvites}
         />
       </header>
+
       {/* Message Area */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden p-6 space-y-4 bg-gray-50">
         {loading ? (

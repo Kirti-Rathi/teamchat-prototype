@@ -6,7 +6,7 @@ import { useSession, useUser } from "@clerk/nextjs";
 import { createClient } from "@supabase/supabase-js";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import InviteModal from "@/components/chat/InviteModalNew";
+import InviteModal from "@/components/chat/Header/InviteModal";
 import { UserPlus, Upload, FileText, Trash } from "lucide-react";
 
 // a tiny fetcher that passes through Clerk tokens

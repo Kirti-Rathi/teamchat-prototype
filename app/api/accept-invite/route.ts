@@ -134,7 +134,7 @@ export async function POST(request: NextRequest) {
         created_at: new Date().toISOString(),
       },
       {
-        onConflict: "user_id,chat_id",
+        onConflict: "chat_id,user_id", // Ensure no duplicates
       }
     );
 

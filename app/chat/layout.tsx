@@ -5,6 +5,13 @@ import { createClient } from "@supabase/supabase-js";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import clsx from "clsx";
+import { Trash } from "lucide-react";
+
+type ChatRoom = {
+  id: string;
+  title: string;
+  workspace_id: string | null;
+};
 
 export default function ChatLayout({
   children,
@@ -15,7 +22,7 @@ export default function ChatLayout({
   const chatId = params?.chatId as string | undefined;
   const { user } = useUser();
   const { session } = useSession();
-  const [chatRooms, setChatRooms] = useState<any[]>([]);
+  const [chatRooms, setChatRooms] = useState<ChatRoom[]>([]);
   const [workspaceId, setWorkspaceId] = useState<string | null | undefined>(
     undefined
   );
@@ -93,7 +100,25 @@ export default function ChatLayout({
       setChatRooms(chats || []);
     };
     fetchChats();
-  }, [user?.id, workspaceId]);
+  }, [user?.id, workspaceId, client]); // Added 'client' to dependency array
+
+  async function deleteChat(chatId: string) {
+    try {
+      const { error } = await client.from("chats").delete().eq("id", chatId);
+
+      if (error) {
+        console.error("Error deleting chat:", error);
+        return;
+      }
+
+      // Update chatRooms state after deletion
+      setChatRooms((prevRooms) =>
+        prevRooms.filter((room) => room.id !== chatId)
+      );
+    } catch (err) {
+      console.error("Unexpected error deleting chat:", err);
+    }
+  }
 
   return (
     <div className="flex h-[90vh] max-w-9xl mx-auto border rounded shadow bg-white overflow-x-hidden">
@@ -126,6 +151,13 @@ export default function ChatLayout({
                 <Link href={`/chat/${room.id}`} className="flex-1 truncate">
                   {room.title}
                 </Link>
+                <button
+                  onClick={() => deleteChat(room.id)}
+                  className="text-red-500 hover:text-red-700"
+                  title="Delete chat"
+                >
+                  <Trash />
+                </button>
               </li>
             ))}
             {chatRooms.length === 0 && (

@@ -92,6 +92,8 @@ export async function POST(req: NextRequest) {
       return new Response("No content provided", { status: 400 });
     }
 
+    // console.log("Prompt sent to Gemini:\n", prompt);
+
     // Initialize Gemini model
     const genai = new GoogleGenerativeAI(GEMINI_API_KEY);
     const model = genai.getGenerativeModel({ model: "gemini-2.0-flash" });

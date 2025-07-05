@@ -10,6 +10,8 @@ function createServerSupabaseClient(req: NextRequest) {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       auth: {
+        autoRefreshToken: false,
+        persistSession: false,
         detectSessionInUrl: false,
         async getToken() {
           const token = await getToken({ template: "supabase" });
@@ -80,7 +82,7 @@ export async function POST(request: NextRequest) {
         created_at: new Date().toISOString(),
       },
       {
-        onConflict: "user_id,workspace_id",
+        onConflict: "workspace_id,user_id",
       }
     );
 
@@ -97,6 +99,8 @@ export async function POST(request: NextRequest) {
         { status: 500 }
       );
     }
+    console.log("chats", chats);
+    console.log("invite", invite);
 
     // Map workspace role to chat role
     const workspaceToChatRole = {
@@ -129,6 +133,8 @@ export async function POST(request: NextRequest) {
       role: chatRole,
       created_at: new Date().toISOString(),
     }));
+
+    console.log("Upserting chat_user_roles", chatUserRoles);
 
     // Upsert into chat_user_roles for each chat
     const { error: chatInsertError } = await supabase

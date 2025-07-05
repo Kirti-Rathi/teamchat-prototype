@@ -1,6 +1,6 @@
 "use client";
 
-import InviteModal from "@/components/chat/InviteModal";
+import InviteModal from "@/components/chat/Header/InviteModal";
 import { useState } from "react";
 
 const TestNew = () => {

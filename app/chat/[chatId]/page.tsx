@@ -1,10 +1,10 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useParams } from "next/navigation";
 import { useSession, useUser } from "@clerk/nextjs";
-import { createClient } from "@supabase/supabase-js";
+import createClerkSupabaseClient from "@/lib/supabaseClient";
 import ChatRoom from "./ChatRoom";
-// import ChatRoomNew from "./ChatRoomNew"
+import ChatRoomFinal from "./ChatRoomFinal";
 
 export default function ChatDetailsPage() {
   const params = useParams();
@@ -12,19 +12,7 @@ export default function ChatDetailsPage() {
   const { user } = useUser();
   const { session } = useSession();
 
-  function createClerkSupabaseClient() {
-    return createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        async accessToken() {
-          return session?.getToken() ?? null;
-        },
-      }
-    );
-  }
-
-  const client = createClerkSupabaseClient();
+  const client = useMemo(() => createClerkSupabaseClient(session), [session]);
 
   const [chat, setChat] = useState<{
     id: string;
@@ -61,5 +49,5 @@ export default function ChatDetailsPage() {
   if (error) return <div className="p-8 text-red-500">{error}</div>;
   if (!chat) return <div className="p-8 text-gray-500">Chat not found.</div>;
 
-  return <ChatRoom />;
+  return <ChatRoomFinal client={client} />;
 }

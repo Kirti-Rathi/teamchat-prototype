@@ -1,19 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-
-type Role = "viewer" | "guest" | "member";
-
-interface Invite {
-  email: string;
-  role: Role;
-}
-
-interface InviteModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  onSend: (invites: Invite[]) => void;
-}
+import { Role, Invite, InviteModalProps } from "../types";
 
 const InviteModal: React.FC<InviteModalProps> = ({
   isOpen,

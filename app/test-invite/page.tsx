@@ -1,6 +1,6 @@
 "use client";
 
-import InviteModal from "@/components/chat/InviteModalNew";
+import InviteModal from "@/components/chat/Header/InviteModal";
 import { useState } from "react";
 
 export default function Page() {
