@@ -2,6 +2,7 @@
   "name": "group-gpt",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -10,15 +11,19 @@
   },
   "dependencies": {
     "@clerk/nextjs": "^6.22.0",
+    "@google/genai": "^1.8.0",
     "@google/generative-ai": "^0.24.1",
     "@supabase/auth-helpers-nextjs": "^0.10.0",
     "@supabase/ssr": "^0.6.1",
     "@supabase/supabase-js": "^2.50.0",
     "@tailwindcss/vite": "^4.1.10",
+    "axios": "^1.10.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "dotenv": "^17.0.1",
     "lucide-react": "^0.522.0",
     "next": "15.3.4",
+    "pdf-parse": "^1.1.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-markdown": "^10.1.0",
@@ -30,12 +35,14 @@
     "@eslint/eslintrc": "^3",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
+    "@types/pdf-parse": "^1.1.5",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "15.3.4",
     "tailwindcss": "^4.1.10",
+    "ts-node": "^10.9.2",
     "tw-animate-css": "^1.3.4",
-    "typescript": "^5"
+    "typescript": "^5.8.3"
   }
 }

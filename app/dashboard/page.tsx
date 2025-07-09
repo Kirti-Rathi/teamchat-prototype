@@ -568,7 +568,7 @@ export default function Dashboard() {
         },
         () => {
           setBackgroundLoading(true);
-          loadData();
+          // loadData();
         }
       )
       .subscribe();
@@ -585,7 +585,7 @@ export default function Dashboard() {
         },
         () => {
           setBackgroundLoading(true);
-          loadData();
+          // loadData();
         }
       )
       .subscribe();

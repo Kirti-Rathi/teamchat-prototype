@@ -1,72 +1,16 @@
-// import { NextRequest, NextResponse } from "next/server";
-// import { GoogleGenerativeAI } from "@google/generative-ai";
-
-// const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-
-// export async function POST(req: NextRequest) {
-//   try {
-//     if (!GEMINI_API_KEY) {
-//       return NextResponse.json(
-//         { error: "Missing Gemini API key" },
-//         { status: 500 }
-//       );
-//     }
-//     const { context } = await req.json();
-//     if (!Array.isArray(context)) {
-//       return NextResponse.json({ error: "Invalid context" }, { status: 400 });
-//     }
-//     // Prepare the prompt from context
-//     // const prompt = context
-//     //   .map((msg: { role: string; content: string }) =>
-//     //     `${msg.role === "assistant" ? "AI" : "User"}: ${msg.content}`
-//     //   )
-//     //   .join("\n");
-
-//     const prompt = context
-//       .map((msg: { role: string; content: string }) => msg.content)
-//       .join("\n\n");
-
-//     // console.log("Prompt sent to Gemini:\n", prompt);
-
-//     // Defensive: check for empty prompt
-//     if (!prompt.trim()) {
-//       return NextResponse.json({ reply: "No context provided." });
-//     }
-
-//     try {
-//       const genai = new GoogleGenerativeAI(GEMINI_API_KEY);
-//       const model = genai.getGenerativeModel({ model: "gemini-2.0-flash" });
-//       const result = await model.generateContent(prompt);
-//       const reply = result.response.text();
-//       return NextResponse.json({
-//         reply: reply?.trim() || "Sorry, I could not generate a reply.",
-//       });
-//     } catch (err: any) {
-//       // Log Gemini API errors for debugging
-//       console.error("Gemini API error:", err);
-//       return NextResponse.json(
-//         { error: err.message || "Gemini API error" },
-//         { status: 500 }
-//       );
-//     }
-//   } catch (error: any) {
-//     // Log unexpected errors
-//     console.error("/api/ai error:", error);
-//     return NextResponse.json(
-//       { error: error.message || "Internal server error" },
-//       { status: 500 }
-//     );
-//   }
-// }
-
 import { NextRequest } from "next/server";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenAI } from "@google/genai";
+import { queryEmbeddings } from "@/utils/vectorSearch";
+
+export const runtime = "nodejs";
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
+const systemPrompt = `You are a helpful assistant that provides concise and accurate answers based on the provided context.`;
+
 export async function POST(req: NextRequest) {
   try {
-    // Validate API key
+    // 1. Validate API key
     if (!GEMINI_API_KEY) {
       return new Response(JSON.stringify({ error: "Missing Gemini API key" }), {
         status: 500,
@@ -74,41 +18,79 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Parse incoming request body
-    const { context } = await req.json();
-    if (!Array.isArray(context)) {
+    // 2. Parse incoming request body
+    const { workspaceId, chatId, userQuery, chatHistory } = await req.json();
+    if (!chatId || !userQuery || !Array.isArray(chatHistory)) {
       return new Response(JSON.stringify({ error: "Invalid context" }), {
         status: 400,
         headers: { "Content-Type": "application/json" },
       });
     }
 
-    // Combine messages into prompt
-    const prompt = context
-      .map((msg: { role: string; content: string }) => msg.content)
-      .join("\n\n");
+    // 3. get relevant context
+    console.log("Calling queryEmbeddings with:", {
+      userQuery,
+      chatId,
+      workspaceId,
+    });
+    const relevantContext = await getRelevantContext(
+      userQuery,
+      chatId,
+      workspaceId
+    );
+    console.log(
+      `Retrieved ${relevantContext.length} relevant context snippets`
+    );
 
-    if (!prompt.trim()) {
-      return new Response("No content provided", { status: 400 });
-    }
+    // 4. Prepare context
+    const contextHeader =
+      relevantContext.length > 0
+        ? `Relevant context:\n${relevantContext
+            .map((s, i) => `[Source ${i + 1}: ${s.fileName}]\n${s.content}`)
+            .join("\n\n---\n\n")}\n\n`
+        : "No relevant context found.\n\n";
 
-    // console.log("Prompt sent to Gemini:\n", prompt);
+    // 5. Build final prompt
+    const fullPrompt = `
+    System: ${systemPrompt}
 
-    // Initialize Gemini model
-    const genai = new GoogleGenerativeAI(GEMINI_API_KEY);
-    const model = genai.getGenerativeModel({ model: "gemini-2.0-flash" });
+    ${contextHeader}
 
-    // Generate content as stream (async iterable)
-    const result = await model.generateContentStream(prompt);
+    Conversation history:
+    ${chatHistory.map((msg) => `${msg.role}: ${msg.content}`).join("\n")}
+    
+    
+    Current user query:
+    ${userQuery}
+    `;
 
+    console.log("Prompt sent to Gemini:\n", fullPrompt);
+
+    // 6. Initialize Gemini model
+    const genai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
+    const result = await genai.models.generateContentStream({
+      model: "gemini-2.5-flash",
+      contents: [
+        systemPrompt,
+        contextHeader,
+        chatHistory.map((msg) => `${msg.role}: ${msg.content}`).join("\n"),
+        userQuery,
+      ],
+      config: {
+        temperature: 0.3,
+        maxOutputTokens: 1024,
+      },
+    });
+
+    // 6. Wrap the async iterable into a ReadableStream
     const encoder = new TextEncoder();
 
-    // Wrap the async iterable into a ReadableStream
     const stream = new ReadableStream({
       async start(controller) {
         try {
-          for await (const chunk of result.stream) {
-            const text = chunk.text();
+          for await (const chunk of result) {
+            const text = chunk.text;
             controller.enqueue(encoder.encode(text));
           }
           controller.close();
@@ -137,4 +119,49 @@ export async function POST(req: NextRequest) {
       }
     );
   }
+}
+
+async function getRelevantContext(
+  query: string,
+  chatId: string,
+  workspaceId?: string
+) {
+  const contextSnippets: {
+    content: string;
+    fileName: string;
+    score: number;
+  }[] = [];
+
+  // Search workspace context
+  if (workspaceId) {
+    console.log(`Searching workspace context for ID: ${workspaceId}`);
+    const workspaceResults = await queryEmbeddings(
+      query,
+      "workspace",
+      workspaceId
+    );
+    console.log(`Found ${workspaceResults} results in workspace context`);
+    contextSnippets.push(
+      ...workspaceResults.map((r) => ({
+        content: r.content,
+        fileName: r.fileName,
+        score: r.score,
+      }))
+    );
+  }
+
+  // Search chat context
+  console.log(`Searching chat context for ID: ${chatId}`);
+  const chatResults = await queryEmbeddings(query, "chat", chatId);
+  console.log(`Found ${chatResults} results in chat context`);
+  contextSnippets.push(
+    ...chatResults.map((r) => ({
+      content: r.content,
+      fileName: r.fileName,
+      score: r.score,
+    }))
+  );
+
+  // Return top 5 by score
+  return contextSnippets.sort((a, b) => b.score - a.score).slice(0, 5);
 }

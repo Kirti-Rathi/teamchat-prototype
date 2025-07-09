@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import useSWR from "swr";
 import { useSession, useUser } from "@clerk/nextjs";
-import { createClient } from "@supabase/supabase-js";
+import createClerkSupabaseClient from "@/lib/supabaseClient";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import InviteModal from "@/components/chat/Header/InviteModal";
@@ -28,19 +28,7 @@ const Workspace = () => {
   const { user } = useUser();
   const { session } = useSession();
 
-  function createClerkSupabaseClient() {
-    return createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        async accessToken() {
-          return session?.getToken() ?? null;
-        },
-      }
-    );
-  }
-
-  const client = createClerkSupabaseClient();
+  const client = useMemo(() => createClerkSupabaseClient(session), [session]);
 
   console.log("WorkspaceID at top level:", workspaceId);
 
@@ -232,8 +220,6 @@ const Workspace = () => {
       .from("contexts")
       .upload(path, file);
 
-    // console.log("Upload data:", uploadData);
-
     if (uploadErr) {
       console.error("Upload error:", uploadErr.message);
       return;
@@ -243,10 +229,7 @@ const Workspace = () => {
       .from("contexts")
       .getPublicUrl(uploadData.path);
 
-    // now grab the string out
     const publicUrl = urlData.publicUrl;
-
-    // console.log("Public URL:", publicUrl);
 
     // 2b. insert metadata row
     const { error: dbErr } = await client.from("workspace_contexts").insert({
@@ -261,6 +244,17 @@ const Workspace = () => {
       console.error("DB insert error:", dbErr.message);
       return;
     }
+
+    await fetch("/api/embed-context", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        publicUrl,
+        fileName: file.name,
+        namespace: "workspace",
+        refId: workspaceId,
+      }),
+    });
 
     // 3️⃣ re‑fetch contexts list so sidebar updates
     mutateWsContexts();
@@ -305,6 +299,15 @@ const Workspace = () => {
       console.error("Storage delete error:", storageErr.message);
       // Not fatal — metadata is gone, but file might linger.
       setError("Metadata deleted, but failed to remove the file.");
+
+      // 3. delete embeddings
+      const { error: embeddingErr } = await client
+        .from("embeddings")
+        .delete()
+        .eq("ref_id", workspaceId);
+      if (embeddingErr) {
+        console.error("Embedding delete error:", embeddingErr.message);
+      }
     } else {
       setSuccess("Context file removed successfully.");
     }

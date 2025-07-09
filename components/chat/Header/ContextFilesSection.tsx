@@ -33,7 +33,7 @@ export default function ContextFilesSection({
       {!chatContexts ? (
         <p className="text-gray-600">Loading chat contexts…</p>
       ) : chatContexts.length === 0 ? (
-        <p className="text-gray-400 italic">No chat‐level context files.</p>
+        <p className="text-gray-400 italic">No chat-level context files.</p>
       ) : (
         <div className="space-y-2">
           {chatContexts.map((ctx) => (

@@ -135,14 +135,14 @@ export default function ChatRoomFinal({ client }: ChatRoomProps) {
     fetchRoleAndChat();
   }, [user?.id, chatId, user?.primaryEmailAddress?.emailAddress]);
 
-  // 🔁 1️⃣ SWR hook to load chat‐level contexts
+  //  1️⃣ SWR hook to load chat‐level contexts
   const {
     data: chatContexts,
     error: chatError,
     mutate: mutateChatContexts,
   } = useSWR(chatId ? `/api/chat/${chatId}/contexts` : null, fetcher);
 
-  // 🗂 2️⃣ Upload a chat‐context file
+  //  2️⃣ Upload a chat‐context file
   async function handleChatFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file || !user) return;
@@ -162,6 +162,7 @@ export default function ChatRoomFinal({ client }: ChatRoomProps) {
       .getPublicUrl(uploadData.path);
     const publicUrl = urlData.publicUrl;
 
+    // 2a. insert metadata row
     const { error: dbErr } = await client.from("chat_contexts").insert({
       chat_id: chatId,
       uploaded_by: user.id,
@@ -175,12 +176,24 @@ export default function ChatRoomFinal({ client }: ChatRoomProps) {
       return;
     }
 
+    // Trigger embedding creation
+    await fetch("/api/embed-context", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        publicUrl,
+        fileName: file.name,
+        namespace: "chat",
+        refId: chatId,
+      }),
+    });
+
     mutateChatContexts();
   }
 
-  // 🗑 3️⃣ Delete a chat‐context file
+  //  3️⃣ Delete a chat‐context file
   async function handleRemoveChatContext(id: string, storagePath: string) {
-    if (!confirm("Delete this context file?")) return;
+    if (!window.confirm("Delete this context file?")) return;
 
     // 1. delete metadata
     const { error: dbErr } = await client
@@ -198,6 +211,15 @@ export default function ChatRoomFinal({ client }: ChatRoomProps) {
       .remove([storagePath]);
     if (storageErr) {
       console.error("Storage delete error:", storageErr.message);
+    }
+
+    // 3. delete embeddings
+    const { error: embeddingErr } = await client
+      .from("embeddings")
+      .delete()
+      .eq("ref_id", chatId);
+    if (embeddingErr) {
+      console.error("Embedding delete error:", embeddingErr.message);
     }
 
     await mutateChatContexts();
@@ -337,6 +359,159 @@ export default function ChatRoomFinal({ client }: ChatRoomProps) {
     }
   };
 
+  // async function handleSend(e: React.FormEvent) {
+  //   e.preventDefault();
+  //   const userInput = input.trim();
+
+  //   if (!userInput || !user?.id || !chatId) return;
+
+  //   setIsSending(true);
+  //   setError("");
+
+  //   // Fetch context
+  //   const { data: lastMessages, error: fetchError } = await client
+  //     .from("messages")
+  //     .select("content, sender_type, user_id")
+  //     .eq("chat_id", chatId)
+  //     .order("created_at", { ascending: false })
+  //     .limit(20);
+
+  //   if (fetchError) {
+  //     setError(fetchError.message);
+  //     setIsSending(false);
+  //     return;
+  //   }
+
+  //   // Insert user message
+  //   const { error: insertError } = await client.from("messages").insert({
+  //     chat_id: chatId,
+  //     user_id: user.id,
+  //     sender_type: "user",
+  //     content: userInput,
+  //   });
+
+  //   if (insertError) {
+  //     setError(insertError.message);
+  //     setIsSending(false);
+  //     return;
+  //   }
+
+  //   // Build context for Gemini
+  //   const contextMessages = (lastMessages || []).reverse();
+  //   const geminiContext = contextMessages.map((msg: any) => ({
+  //     role: msg.sender_type === "ai" ? "assistant" : "user",
+  //     content: msg.content,
+  //   }));
+  //   geminiContext.push({ role: "user", content: userInput });
+
+  //   setInput("");
+  //   setIsSending(false);
+  //   setAiLoading(true);
+
+  //   // Call Gemini API for streaming response
+  //   try {
+  //     const response = await fetch("/api/ai", {
+  //       method: "POST",
+  //       headers: { "Content-Type": "application/json" },
+  //       body: JSON.stringify({ context: geminiContext }),
+  //     });
+
+  //     if (!response.body) throw new Error("No response stream");
+
+  //     const reader = response.body.getReader();
+  //     const decoder = new TextDecoder("utf-8");
+
+  //     let fullText = "";
+  //     let updateCounter = 0;
+  //     let lastUpdateTime = Date.now();
+
+  //     // Insert placeholder AI message into DB
+  //     const { data: insertedAiMsg, error: insertError } = await client
+  //       .from("messages")
+  //       .insert({
+  //         chat_id: chatId,
+  //         user_id: null,
+  //         sender_type: "ai",
+  //         content: "",
+  //       })
+  //       .select()
+  //       .single();
+
+  //     if (insertError || !insertedAiMsg?.id) throw insertError;
+
+  //     const msgId = insertedAiMsg.id;
+
+  //     // Add initial message in UI
+  //     // setMessages((prev) => [...prev, { ...insertedAiMsg, content: "" }]);
+
+  //     while (true) {
+  //       const { done, value } = await reader.read();
+  //       if (done) break;
+
+  //       const chunk = decoder.decode(value);
+
+  //       for (const char of chunk) {
+  //         fullText += char;
+
+  //         setMessages((prev) =>
+  //           prev.map((m) =>
+  //             m.id === msgId
+  //               ? {
+  //                   ...m,
+  //                   content: fullText + "▍",
+  //                   updated_at: new Date().toISOString(),
+  //                 }
+  //               : m
+  //           )
+  //         );
+
+  //         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+
+  //         await new Promise((res) => setTimeout(res, 3));
+
+  //         updateCounter++;
+
+  //         if (updateCounter >= 20 || Date.now() - lastUpdateTime > 500) {
+  //           await client
+  //             .from("messages")
+  //             .update({ content: fullText })
+  //             .eq("id", msgId);
+  //           updateCounter = 0;
+  //           lastUpdateTime = Date.now();
+  //         }
+  //       }
+  //     }
+
+  //     // Final content update (removes ▍ and stores final content)
+  //     await client
+  //       .from("messages")
+  //       .update({ content: fullText })
+  //       .eq("id", msgId);
+
+  //     setMessages((prev) =>
+  //       prev.map((m) =>
+  //         m.id === msgId
+  //           ? {
+  //               ...m,
+  //               content: fullText,
+  //               updated_at: new Date().toISOString(),
+  //             }
+  //           : m
+  //       )
+  //     );
+
+  //     if (!fullText.trim()) {
+  //       await client.from("messages").delete().eq("id", msgId);
+  //       setError("AI did not return any reply.");
+  //     }
+  //   } catch (err: any) {
+  //     console.error("Streaming error:", err);
+  //     setError("AI error: " + err.message);
+  //   } finally {
+  //     setAiLoading(false);
+  //   }
+  // }
+
   async function handleSend(e: React.FormEvent) {
     e.preventDefault();
     const userInput = input.trim();
@@ -377,10 +552,10 @@ export default function ChatRoomFinal({ client }: ChatRoomProps) {
     // Build context for Gemini
     const contextMessages = (lastMessages || []).reverse();
     const geminiContext = contextMessages.map((msg: any) => ({
-      role: msg.sender_type === "ai" ? "assistant" : "user",
+      role: msg.sender_type === "ai" ? "model" : "user",
       content: msg.content,
     }));
-    geminiContext.push({ role: "user", content: userInput });
+    // geminiContext.push({ role: "user", content: userInput });
 
     setInput("");
     setIsSending(false);
@@ -391,7 +566,12 @@ export default function ChatRoomFinal({ client }: ChatRoomProps) {
       const response = await fetch("/api/ai", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ context: geminiContext }),
+        body: JSON.stringify({
+          workspaceId,
+          chatId,
+          userQuery: userInput,
+          chatHistory: geminiContext, // Backend doesn't use this but requires array
+        }),
       });
 
       if (!response.body) throw new Error("No response stream");
