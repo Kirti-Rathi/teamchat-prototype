@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const { inviteId } = await request.json();
-    const { userId } = await auth(request);
+    const { userId } = await auth();
 
     if (!inviteId || !userId) {
       return NextResponse.json({ error: "Invalid request" }, { status: 400 });

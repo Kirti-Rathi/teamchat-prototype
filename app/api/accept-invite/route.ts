@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
 
     // Get the current user from Clerk
     // console.log('Getting auth...');
-    const authResult = await auth(request);
+    const authResult = await auth();
     // console.log('Auth result:', JSON.stringify(authResult, null, 2));
 
     const { userId } = authResult;
@@ -116,7 +116,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Update the invite to mark it as accepted
-    const { data: updatedInvite, error: updateError } = await supabase
+    const { error: updateError } = await supabase
       .from("chat_invites")
       .update({ accepted: true })
       .eq("id", inviteId)

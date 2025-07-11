@@ -3,7 +3,7 @@ import { useEffect, useState, useMemo } from "react";
 import { useParams } from "next/navigation";
 import { useSession, useUser } from "@clerk/nextjs";
 import createClerkSupabaseClient from "@/lib/supabaseClient";
-import ChatRoom from "./ChatRoom";
+// import ChatRoom from "./ChatRoom";
 import ChatRoomFinal from "./ChatRoomFinal";
 
 export default function ChatDetailsPage() {
